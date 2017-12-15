@@ -1,1 +1,28 @@
-# PORTFOLIO-DS
+# Data Science Portfolio by Danilo Araujo
+***
+
+This is a compilation of **data science** projects. The projects are listed by their objectives (Data cleaning, Exploratory data analysis, Machine learning, etc) and have been summarized on Rpubs reports.  
+If you want more information about me or want to get in touch, feel free to message me on [www.linkedin.com/in/danilodaraujo](Linkedin).
+
+## Natural Language Processing and Shiny
+### Word Suggestion using Markov Chains and Stupid Backoff model
+[http://rpubs.com/danilodaraujo/wordsuggestion](Word Suggestion Report)[https://danilodaraujo.shinyapps.io/wordsuggestion/](Shiny Application)
+
+This projects shows how can we use a large dataset to teach a machine to suggest the next word to the user. The code uses the idea of Markov chains and a stupid backoff model to predict the next most probable word.  
+A shiny application was also developed to ease the interaction with the user. Due to the application processing restrictions, the "accuracy" vs "response time" trade off played a significant challenge in the development of the project.
+
+## Data Cleaning
+
+## Exploratory Data Analysis
+
+## Machine Learning
+
+# About Me
+
+London based and results driven data analyst with strong commercial skills and business acumen. Willing to work with data science in business environments to solve real-life problems. A professional with a background in engineering and a track record of delivering projects to budget within deadlines and effective use of resources.
+
+Technical Skill Set:
+* R programming
+* SQL
+* Practical Machine Learning
+* Data Cleaning
