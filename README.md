@@ -8,7 +8,7 @@ If you want more information about me or want to get in touch, feel free to mess
 ### > Word Suggestion using Markov Chains and Stupid Backoff model
 ![](https://media.giphy.com/media/xUOxfa9p1prUEQUvao/giphy.gif)
 
-###[Report](http://rpubs.com/danilodaraujo/wordsuggestion) - [Shiny Application](https://danilodaraujo.shinyapps.io/wordsuggestion/)
+### [Report](http://rpubs.com/danilodaraujo/wordsuggestion) - [Shiny Application](https://danilodaraujo.shinyapps.io/wordsuggestion/)
 
 This projects shows how can we use a large dataset to teach a machine to suggest the next word to the user. The code uses the idea of Markov chains and a stupid backoff model to predict the next most probable word.  
 
