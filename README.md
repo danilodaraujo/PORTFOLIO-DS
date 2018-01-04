@@ -14,7 +14,13 @@ This projects shows how can we use a large dataset to teach a machine to suggest
 
 A shiny application was also developed to ease the interaction with the user. Due to the application processing restrictions, the "accuracy" vs "response time" trade off played a significant challenge in the development of the project.
 
-## Data Cleaning
+## Data Assembling and Cleaning
+### > Data Assembling
+![](https://media.giphy.com/media/l49JAH7kYcwAeyYw0/giphy.gif)
+
+### [Report](http://rpubs.com/danilodaraujo/dataassembling)
+
+In this project we go step by step over data importing and table structuring and cleaning. The final result is a .csv file with a table that is tidy, compreensible, has no missing values or outliers and can be readly imported and used.
 
 ## Exploratory Data Analysis
 

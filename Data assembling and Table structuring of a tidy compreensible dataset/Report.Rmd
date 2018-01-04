@@ -1,0 +1,286 @@
+---
+title: "Data assembling and Table structuring of a tidy compreensible dataset"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+```{r, message = F, warning = F, echo = F}
+library(data.table)
+library(dplyr)
+library(knitr)
+```
+
+-----------------------------
+
+# Objective
+
+In this project we go step by step over data importing and table structuring and cleaning. The final result is a .csv file with a table that is tidy, comprehensible, has no missing values or outliers and can be readly imported and used.
+
+For this We will use the "Human Activity Recognition (HAR) Using Smartphones Data Set" collected by [CETpD](https://www.epsevg.upc.edu/cetpd/index.php) and [SmartLab](https://sites.google.com/view/smartlabunige). The dataset is built from the recordings of 30 subjects performing activities of daily living (ADL) while carrying a waist-mounted smartphone with embedded inertial sensors.
+
+The dataset is comprised of 269 MB of _.txt_ files. Our objective is to assemble this dataset and ensure that it is clean.  
+
+-----------------------------
+
+# Data import
+
+#### About the Data
+
+The experiments have been carried out with a group of 30 volunteers within an age bracket of 19-48 years. Each person performed six activities (WALKING, WALKING_UPSTAIRS, WALKING_DOWNSTAIRS, SITTING, STANDING, LAYING) wearing a smartphone (Samsung Galaxy S II) on the waist. Using its embedded accelerometer and gyroscope, we captured 3-axial linear acceleration and 3-axial angular velocity at a constant rate of 50Hz. The experiments have been video-recorded to label the data manually. The obtained dataset has been randomly partitioned into two sets, where 70% of the volunteers was selected for generating the training data and 30% the test data. 
+
+The sensor signals (accelerometer and gyroscope) were pre-processed by applying noise filters and then sampled in fixed-width sliding windows of 2.56 sec and 50% overlap (128 readings/window). The sensor acceleration signal, which has gravitational and body motion components, was separated using a Butterworth low-pass filter into body acceleration and gravity. The gravitational force is assumed to have only low frequency components, therefore a filter with 0.3 Hz cutoff frequency was used. From each window, a vector of features was obtained by calculating variables from the time and frequency domain.
+
+Please visit the [data website](http://archive.ics.uci.edu/ml/datasets/Human+Activity+Recognition+Using+Smartphones#) for further details.  
+
+#### Download
+
+```{r}
+download.url <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"
+download.path <- "./UCI HAR Dataset.zip"
+
+# Check if file exists, if not, downloads the file
+if (!file.exists(download.path)) {
+        download.file(download.url, download.path)
+}
+
+# Check if directory exists, if not, creates it by unzipping the downloaded file
+unzip.path <- "UCI HAR Dataset"
+if (!file.exists(unzip.path)) {
+        unzip(download.path)
+}
+```
+
+#### Import
+
+```{r, message = F, warning = F}
+# Lists all .txt files in the directory
+all.files.paths <- list.files(path = "./UCI HAR Dataset",pattern = ".txt", recursive = T, full.names = T)
+```
+
+```{r, echo = F}
+dt <- data.table(Paths = all.files.paths, 
+                 File.Description = c("Links the class labels with their activity name.", "List of all features", "Shows information about the variables used on the feature vector.", "README file", rep("Body Acceleration Signals", times = 3), rep("Angular velocity measurements", times = 3), rep("Total Acceleration Signals", times = 3), "Each row identifies the subject who performed the activity", "Compiled Test Set", "Test Labels", rep("Body Acceleration Signals", times = 3), rep("Angular velocity measurements", times = 3), rep("Total Acceleration Signals", times = 3), "Each row identifies the subject who performed the activity", "Compiled Train Set", "Train Labels"))
+
+kable(dt, caption = "List of all unzipped files")
+```
+
+Once the files are downloaded and unzipped, we notice that it came in several _.txt_ files (as shown above). Taking a further look on the data [website](http://archive.ics.uci.edu/ml/datasets/Human+Activity+Recognition+Using+Smartphones#) and _README.txt file_, we can begin to have an idea of how the final table might be structured. 
+
+It seems that:
+
+1. Most of the measurements are compiled in the _X_test.txt_ and _X_train.txt_ sets. 
+2. The _README.txt_ and _features_info.txt_ are explanatory files and don't constitute the final dataset.
+
+This allows us to dispose of a lot of data, leaving us to:
+
+```{r}
+# Pick only the necessary file paths
+all.files.paths <- all.files.paths[c(1,2,14:16,26:28)]
+
+# Data import as data.table
+raw.data <- lapply(X = all.files.paths, FUN = fread)
+```
+
+```{r, echo = F, warning = F, message = F}
+dt <- data.table(Paths = all.files.paths,
+                 File.Description = c("Links the class labels with their activity name.", "List of all features", "Each row identifies the subject who performed the activity", "Compiled Test Set", "Test Labels", "Each row identifies the subject who performed the activity", "Compiled Train Set", "Train Labels"))
+
+kable(dt, caption = "List of required files to the final dataset")
+```
+
+-----------------------------
+
+# Table Assemble
+
+#### Table Structure
+
+Now that the required files have been imported. We want to have an idea of how they are going to be structured. The image below is a representation of how each txt file has to be bound on the final dataset. 
+
+1. The test set (blue) is spread over three files, it should be put together and identified as "test set". 
+2. The same must be done with the train set (orange).
+3. Only then, both sets are to be bind.
+4. Finally, the sets must have its columns named. The column names are in the _features.txt_ file, which has also been imported.
+
+```{r, out.width = "350px", fig.align="center", echo = F}
+knitr::include_graphics("./pics/bofa1.png")
+```
+
+#### 1. "Test" set assemble
+
+```{r}
+test.table <- bind_cols(raw.data[[3]], raw.data[[5]], Set = rep("Test set", times = dim(raw.data[[3]])[1]), raw.data[[4]])
+```
+
+```{r, out.width = "200px", fig.align="center", echo = F}
+knitr::include_graphics("./pics/b1.png")
+```
+
+#### 2. "Train" set assemble
+
+```{r}
+train.table <- bind_cols(raw.data[[6]], raw.data[[8]], Set = rep("Train set", times = dim(raw.data[[6]])[1]), raw.data[[7]])
+```
+
+```{r, out.width = "200px", fig.align="center", echo = F}
+knitr::include_graphics("./pics/o1.png")
+```
+
+#### 3. Bind "test" and "train" sets
+
+```{r}
+table <- bind_rows(test.table, train.table)
+```
+
+```{r, out.width = "200px", fig.align="center", echo = F}
+knitr::include_graphics("./pics/bo1.png")
+```
+
+#### 4. Column names
+
+```{r}
+# Set up the column names list
+col.names <- c("Subject",
+                  "Activity",
+                  "Set",
+                  unlist(raw.data[[2]][,2]))
+```
+
+```{r, out.width = "200px", fig.align="center", cache = F, echo = F}
+knitr::include_graphics("./pics/bof1.png")
+```
+
+-----------------------------
+
+# Adjustments
+
+#### Duplicate Values on col.names
+
+Notice that we haven't assigned the _col.names_ to the table yet. That is because if we take a further look at it we will see that it actually has a lot of duplicate values.
+
+```{r}
+# Check for duplicates
+table(duplicated(col.names))
+```
+
+Duplicated values are a problem because they do not allow packages likes dplyr to work properly. So, in order to make all values unique, we will add an exclamation point and idnumber to the end of each column name.
+
+```{r}
+# Add a !# at the end of every variable name. This will avoid duplicates
+col.names <- paste0(col.names, rep("!", times = dim(table)[2]), 1:dim(table)[2])
+
+# Assign the list to be the column name of the table
+colnames(table) <- col.names
+```
+
+#### Subset mean and std variables
+
+**There are 564 variables in the test/train set. If we are to apply a machine learning algorithm to that whole dataset a lot of computational power and time are going to be spent.** So one of our tasks will be to extract only the _mean_ and _std_ variables of the dataset. This greatly reduces the computational power required to run the code, while not compromising the final result.
+
+```{r}
+# Subset the variables corresponding to means and standard deviations
+table.subset <- table %>%
+        select(starts_with("t"), starts_with("f")) %>%
+        select(contains("mean"), contains("std"))
+
+# Replace the previous table with the subsetted one
+table <- bind_cols(table[,1:3],table.subset)
+```
+
+-----------------------------
+
+# Making it Tidy
+
+# Descriptive column names
+
+Let's take a look at the column names we have just assigned:
+
+```{r, echo = F}
+
+dt <- data.table(colnames(table)[1:28],
+                 colnames(table)[29:56],
+                 c(colnames(table)[57:82],"",""))
+
+kable(dt, caption = "List of all Column Names")
+```
+
+As we want to export a tidy data that is fully comprehensible, **we must ensure that our variables names are more descriptive**.
+
+```{r}
+col.names <- colnames(table)
+col.names <- tolower(col.names) # All to lower
+col.names <- gsub("^t", "time.", col.names) # Replace t by "time"
+col.names <- gsub("^f", "freq.", col.names) # Replace f by "frequency"
+col.names <- gsub("-", ".", col.names) # Replace "-" by "."
+col.names <- gsub('\\()', "", col.names) # Remove all "()" characters
+col.names <- gsub('\\!.*', "", col.names) # Remove markers
+
+# As all markes have been removed, lets check if there are duplicate values on the column names
+table(duplicated(col.names))
+
+# Reassign the list to the column names
+colnames(table) <- col.names
+```
+
+-----------------------------
+
+# Descriptive activity column
+
+The _activity_ column in our table is comprised of numbers, each number indicates which activity has been performed by the subject at the given row. As it is, the table states that different activities have been performed, but doesn't make clear which activity was performed.
+
+```{r}
+# Check what are the values in the "activity column"
+table(table[,activity])
+```
+
+Luckily, the _activity.txt_ file contains a list linking each number with it corresponding activity.
+
+We will use the numbers as keys to link each row with its activity, joining both tables. This will make our final table fully comprehensible and complete.
+
+```{r}
+# Join activity table and massive table to add the activities
+activity.table <- raw.data[[1]]
+table <- merge(activity.table, table, by.x = "V1", by.y = "activity")[,-1]
+colnames(table)[1] <- "activity"
+
+# Recheck the "activity column"
+table(table[, activity])
+```
+
+```{r, out.width = "350px", fig.align="center", echo = F}
+knitr::include_graphics("./pics/bofa1.png")
+```
+
+#### Cleaning
+
+Now that we have our dataset, we want take a look at what is inside to ensure that it is "clean" for the final user.
+
+```{r} 
+str(table)
+```
+
+All columns seem to be properly classified. Both _activity_ and _set_ columns are "characters", while the _subject_ column is classified as integer. All the rest refer to experimental measurements and are classified as "number".
+
+```{r}
+summary(table)
+```
+
+No variable seem to be skewed or shows an outlier.
+
+```{r}
+sum(is.na(table))
+```
+
+There doesn't seem to have any "NA" value at the dataset.
+
+-----------------------------
+
+# Export
+
+Now that we have a tidy and comprehensible dataset and we have checked for missing and outliers, we can proceed to the final step, exporting as _.csv_.
+
+```{r}
+
+write.csv(table, "./export/tidy_UCI_HAR_Dataset.csv")
+
+```
