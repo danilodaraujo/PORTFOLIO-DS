@@ -1,6 +1,6 @@
 # Data Science Portfolio by Danilo Araujo
 ***
-This is a compilation of **data science** projects. The projects are listed by their objectives (Data cleaning, Exploratory data analysis, Machine learning, etc) and have been summarized on Rpubs reports.  
+This is a work in progress portfolio of **data science** projects. The projects are listed by their objectives (Data cleaning, Exploratory data analysis, Machine learning, etc) and have been summarized on Rpubs reports.  
 
 If you want more information about me or want to get in touch, feel free to message me on [Linkedin](www.linkedin.com/in/danilodaraujo).
 
@@ -14,10 +14,8 @@ This projects shows how can we use a large dataset to teach a machine to suggest
 
 A shiny application was also developed to ease the interaction with the user. Due to the application processing restrictions, the "accuracy" vs "response time" trade off played a significant challenge in the development of the project.
 
-  
-
 ## Data Assembling and Cleaning
-### > Data Assembling
+### > Data assembling and Table structuring of a tidy compreensible dataset
 ![](https://media.giphy.com/media/l49JAH7kYcwAeyYw0/giphy.gif)
 
 ### [Report](http://rpubs.com/danilodaraujo/dataassembling)
@@ -27,8 +25,6 @@ In this project we go step by step over data importing and table structuring and
 ## Exploratory Data Analysis
 
 ## Machine Learning
-
-  
 
 # About Me
 ***
@@ -40,4 +36,4 @@ Technical Skill Set:
 * Practical Machine Learning
 * Data Cleaning
 
-## [Linkedin](www.linkedin.com/in/danilodaraujo)
+## [Linkedin](https://www.linkedin.com/in/danilodaraujo)
