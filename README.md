@@ -28,12 +28,12 @@ In this project we go step by step over data importing and table structuring and
 
 # About Me
 ***
-London based and results driven data analyst with strong commercial skills and business acumen. Willing to work with data science in business environments to solve real-life problems. A professional with a background in engineering and a track record of delivering projects to budget within deadlines and effective use of resources.
+A result driven data analyst with business acumen. Willing to work with data science in business environments to solve real-life problems. A professional with a business analyst background and a track record of using data to deliver projects to budget within deadlines and effective use of resources.
 
-Technical Skill Set:
-* R programming
-* SQL
-* Practical Machine Learning
-* Data Cleaning
+TECHNICAL SKILLSET
+* **Data Science:** Practical Machine Learning, Regression Models, Statistical Inference, Exploratory Data Analysis, Getting and Cleaning Data
+* **SQL:** queries in relational databases for data extraction/shaping for targeted analysis purposes
+* **Git** for version control
+* **R** (caret, gdplyr, ggplot2, reshape2, quanteda, shiny)
 
 ## [Linkedin](https://www.linkedin.com/in/danilodaraujo)
