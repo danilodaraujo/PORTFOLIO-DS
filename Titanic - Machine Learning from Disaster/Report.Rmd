@@ -1,0 +1,570 @@
+---
+title: 'Titanic: Machine Learning from Disaster by Danilo Araujo'
+output:
+  html_document: default
+  html_notebook: default
+---
+
+```{r, warning = F, message = F}
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(randomForest)
+library(easyGgplot2)
+library(knitr)
+```
+
+# About the Data
+
+The sinking of the RMS Titanic is one of the most infamous shipwrecks in history.  On April 15, 1912, during her maiden voyage, the Titanic sank after colliding with an iceberg, killing 1502 out of 2224 passengers and crew. This sensational tragedy shocked the international community and led to better safety regulations for ships.
+
+One of the reasons that the shipwreck led to such loss of life was that there were not enough lifeboats for the passengers and crew. Although there was some element of luck involved in surviving the sinking, some groups of people were more likely to survive than others, such as women, children, and the upper-class.
+
+In this challenge, we ask you to complete the analysis of what sorts of people were likely to survive. In particular, we ask you to apply the tools of machine learning to predict which passengers survived the tragedy.
+
+For more information about the titanic data set visit the [data page](https://www.kaggle.com/c/titanic).
+
+# Data Import
+
+The data has been split into two groups:
+
+1. training set (train.csv)
+2. test set (test.csv)
+
+The training set will be used to train our machine learning model. Both train and test set come with social information (Name, Age, Number of Parents/Siblings aboard, etc) and economic information (Ticket Class, ticket fare, port of embarkation, etc), but only the train set comes with the *Survived* variable. The test set should be submitted to kaggle to see how well your model performs on unseen data.
+
+```{r}
+# File Download
+if (!file.exists("./Initial Data/test.csv")) {
+        download.file(url = "https://www.kaggle.com/c/titanic/download/test.csv", "./Initial Data/test.csv")
+        download.file(url = "https://www.kaggle.com/c/titanic/download/train.csv", "./Initial Data/train.csv")
+}
+
+# Data Import
+raw.train <- fread("./Initial Data/train.csv", sep = ",", stringsAsFactors = F)
+raw.test <- fread("./Initial Data/test.csv", sep = ",", stringsAsFactors = F)
+```
+
+# Data Transformation
+
+Now that we have imported both tables, we want to take a look at all the information that we are handling. Let's start by setting up a table containing both train and test datasets.
+
+```{r}
+# Bind both train and test datasets, ensuring that we leave out the  survival column in the train set
+fulldt <- rbind(raw.train[,-2], raw.test)
+
+# Set a variable to differenciate train and set data
+fulldt$Origin <- c(rep("train", times = dim(raw.train)[1]), rep("test", times = dim(raw.test)[1]))
+
+# Let's take a look at the data
+str(fulldt)
+```
+
+It appears that several of these variables should be represented as factors and thus should be reclassified. 
+
+```{r}
+# Ensure that some variables are factors
+cols <- c("Pclass", "Sex", "SibSp", "Parch", "Embarked", "Cabin")
+setDT(fulldt)
+for(j in cols){
+  set(fulldt, i=NULL, j=j, value=factor(fulldt[[j]]))
+}
+```
+
+Now we will take a further look into the data.
+
+```{r}
+summary(fulldt)
+```
+
+As any raw dataset, it seems that a lot of variables have missing or empty values. Before any modelling is done, these cases needs to be addressed:
+
+#### 1. NAs values in *Age*
+
+The summary of the data shows us that the *Age* variable has 263 NA values. How is this comparable with our data?
+
+```{r}
+mean(is.na(fulldt$Age)) # Which percentage of Age is NA values?
+```
+
+Around 20%, that's relevant. Which means that we can not discard the NA rows.
+
+As we want to focus on **predicting** the passengers' survival in this exercise, for now we will assign the median age to all NA values. But we must keep in mind that we might improve our accuracy by better predicting a passengers' age.
+
+```{r}
+fulldt[is.na(Age), "Age"] <- round(median(fulldt$Age, na.rm = T), 0) # Plug Age median on NA values
+```
+
+#### 2. Missing values in *Embarked*
+
+Embarked has only two missing values, so we will replace them with the most common value.
+
+```{r}
+fulldt[which(fulldt$Embarked == ""),"Embarked"] <- "S"
+fulldt$Embarked <- factor(fulldt$Embarked) # Make sure that Embarked is a factor
+```
+
+#### 3. NAs values in *Fare*
+
+```{r}
+fulldt %>%
+        filter(is.na(Fare)) %>%
+        select(Name, Pclass, Embarked, Age)
+```
+
+It seems that we only have one NA value on the fare variable. We are not dealing with an factor variable, so we can't use the same approach as before. In this case, we will try to find similar cases to Mr. Thomas' and then take a mean of all of its fare values.
+
+```{r}
+# Let's filter all those who are 3rd class passengers and embarked from Southampton
+        x <- fulldt %>%
+                filter(Pclass == "3", Embarked == "S") %>%
+                select(PassengerId, Pclass, Embarked, Fare, Age)
+
+        kable(head(x, 10), format = 'markdown')
+        
+        # Replace NA values by mean of 3rd class passengers embarked from Southampton
+        fulldt[is.na(Fare), "Fare"] <- round(mean(x[, "Fare"], na.rm = T),0)
+```
+
+#### 4. *PassengerId*, *Name* and *Ticket* variables
+
+Let's set a table to verify how much of these variable are duplicate values. We have a hunch that variables like *PassengerId*, *Name* and *Ticket* might not help us, because factor variables with close to zero duplicate values do not help in predicting.
+
+```{r}
+# Check for duplicates
+apply(X = fulldt[,c("PassengerId","Name","Ticket")], MARGIN = 2, FUN = function(x) mean(duplicated(x)))
+```
+
+It seems that what we suspected is true. *PassengerId*, *Name* and *Ticket* don't bring any information to the table as they are, so we won't use them as features. They are not to be discarded, though. We still can try to extract some information by **feature engineering**.
+        
+#### 5. Empty values in *Cabin*
+
+Lastly, it seems that most of *Cabin* values are empty, so we are going to discard it as an feature.
+
+```{r}
+length(which(fulldt$Cabin == ""))/length(fulldt$Cabin) # How much of "Cabin" is empty?
+```
+
+# Exploring the variables
+
+Now that we have dealt with the missing/NA Values in the dataset, we want to take a further look into how the predictor variables relate with our target variable. 
+
+But first we must prepare the data.
+
+```{r}
+# Explit again into test and train set
+test <- fulldt %>%
+        filter(Origin == "test")
+train <- fulldt %>%
+        filter(Origin == "train")
+
+# Assign Survived column to train
+train <- as.data.table(train)
+train$Survived <- raw.train[PassengerId %in% train$PassengerId, "Survived"]
+train$Survived <- factor(train$Survived)
+```
+
+Now we are ready to start exploring the variables.
+
+```{r, echo = F}
+
+theme_set(theme_classic())
+
+gg.age <- ggplot(train, aes(Age)) +
+        geom_density(aes(fill = as.factor(Survived)), alpha = 0.3) +
+        labs(title = "Age Density Plot",
+             subtitle = "Passengers' Age and survival",
+             x = "Passengers' Age",
+             y = "Density") +
+        theme(legend.position = "top")
+
+gg.sex <- ggplot(train) +
+        geom_bar(position = "dodge", aes(x = Sex, fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Sex Plot",
+             subtitle = "Passengers' Sex and survival",
+             x = "Passengers' Sex",
+             y = "Count") +
+        theme(legend.position = "none")
+
+gg.class <- ggplot(train) +
+        geom_bar(position = "fill", aes(x = Pclass, fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Class Plot",
+             subtitle = "Passengers' Class and survival",
+             x = "Passengers' Class",
+             y = "Survival") +
+        theme(legend.position = "none") + 
+        geom_hline(yintercept = 0.5, linetype = "dashed", color = "red")
+
+gg.fare <- ggplot(train, aes(Fare)) +
+        geom_density(aes(fill = as.factor(Survived)), alpha = 0.3) +
+        labs(title = "Fare Density Plot",
+             subtitle = "Passengers' Fare and survival",
+             x = "Passengers' Fare",
+             y = "Density") +
+        theme(legend.position = "none")
+gg.sibsp <- ggplot(train) +
+        geom_bar(position = "dodge", aes(x = SibSp, fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Siblings and Spouses Plot",
+             subtitle = "Number of siblings & spouses a passenger has and survival",
+             x = "Number of Siblings/Spouse",
+             y = "Count") +
+        theme(legend.position = "none")
+
+gg.parch <- ggplot(train) +
+        geom_bar(position = "dodge", aes(x = Parch, fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Parents and Children Plot",
+             subtitle = "Number of parents & children a passenger has and survival",
+             x = "Number of Parents/Children",
+             y = "Count") +
+        theme(legend.position = "none")
+
+gg.embarked <- ggplot(train) +
+        geom_bar(position = "fill", aes(x = Embarked, fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Embarked Plot",
+             subtitle = "Origin of passenger' embarkment and survival",
+             x = "Origin",
+             y = "Survival") +
+        theme(legend.position = "none") + 
+        geom_hline(yintercept = 0.5, linetype = "dashed", color = "red")
+```
+
+```{r, echo = F}
+gg.age
+```
+
+```{r, echo = F}
+ggplot2.multiplot(gg.sex, gg.embarked)
+```
+
+```{r, echo = F}
+ggplot2.multiplot(gg.class, gg.fare)
+```
+
+```{r, echo = F}
+ggplot2.multiplot(gg.sibsp, gg.parch)
+```
+
+From those plots we can take a few points:
+
+* The age plot shows that the passenger has a higher probability to live if it's under 17, but more likely to die if between 17 and 33.
+* Women are less likely to die than men.
+* The higher your class is, the higher is your probability to survive.
+* If you paid a cheap fare, your chances to die are much higher.
+* If you are all by yourself in the Titanic (no siblings, spouses, parents or children) you are more likely to die.
+* The "siblings and spouses" and "parents and children" plots seem to be correlated.
+
+# ML Models
+
+Okay, we have taken a look at the variables. Now we want to start building and improving models.
+
+## Model 1
+
+In this model we will use the features that we have at hand to build a random forest.
+
+```{r}
+# Setting up the train table
+train.1 <- fulldt %>%
+        filter(PassengerId <=  891) %>%
+        select(Pclass, Sex, Age, SibSp, Parch, Fare, Embarked)
+train.1$Survived <- raw.train$Survived
+
+# Setting up the test table
+test.1 <- fulldt %>%
+        filter(PassengerId >  891) %>%
+        select(Pclass, Sex, Age, SibSp, Parch, Fare, Embarked)
+```
+
+Although every ML algorithm with high complexity can overfit, ensemble methods like random forest reduces the prediction variance to almost nothing, improving the accuracy of the result. This is why we won't be partitioning the data to do cross-validation.
+
+```{r}
+set.seed(1234)
+fit.1 <- randomForest(as.factor(Survived) ~ ., data = train.1, ntree = 1000, importance = T)
+fit.1
+```
+
+The unbiased estimate of the test set error is done by the Out of the Bag (OOB) error, which we can see is around 17% in this model. Also, we seem to be much better in predicting if a person has died rather than lived. We might also want to check if our number of trees chosen was sufficient.
+
+```{r}
+plot(fit.1, ylim=c(0,0.36))
+```
+
+The black line shows the OOB error by the number of trees used. Notice how it is stable at the thousandth tree. Similarly, the green and red lines represent the classification error for the survival and non survival outcomes.
+
+Now let's take a look at the features.
+
+```{r}
+varImpPlot(fit.1)
+```
+
+The variable importance is calculated by randomly permuting the values of variables in the oob cases and then checking comparing its result with the untouched data. This is important because give us an idea of how an feature might impact the overall result.
+
+For instance, it seems that the port of embarkment and the number of siblings/spouses (SibSp) or parents/children (Parch) aboard did not have a great impact on the overall result.
+
+```{r}
+# Write a submission table
+predict.1 <- predict(fit.1, test.1)
+submit.1 <- data.table(PassengerId = test$PassengerId, Survived = predict.1)
+write.csv(submit.1, file = "./submission1.csv", row.names = F)
+```
+
+**Kaggle Accuracy: 0.76555.**
+
+## Model 2
+
+In the previous model, we have used all features available do predict the result. But if we take a look at the importance plot we will notice that *Parch*, *SibSp* and *Embarked* don't seem to have a significant impact on the overall result. So, next, we want to try a model removing them as features.
+
+```{r}
+# Setting up the train table
+train.2 <- fulldt %>%
+        filter(PassengerId <=  891) %>%
+        select(Pclass, Sex, Age, Fare) # Removed Parch, SibSp and Embarked
+train.2$Survived <- raw.train$Survived
+
+# Setting up the test table
+test.2 <- fulldt %>%
+        filter(PassengerId >  891) %>%
+        select(Pclass, Sex, Age, Fare) # Removed Parch, SibSp and Embarked
+```
+
+```{r}
+set.seed(1234)
+fit.2 <- randomForest(as.factor(Survived) ~ ., data = train.2, ntree = 1000, importance = T)
+fit.2
+```
+
+We can notice already a decrease in the OOB error estimate, which might show that the removed variables might have little explanatory power.
+
+```{r}
+varImpPlot(fit.2)
+```
+
+It seems that by removing these features, we might have increased the others' importance. I wonder how that might have impacted our results.
+
+```{r}
+# Write a submission table
+predict.2 <- predict(fit.2, test.2)
+submit.2 <- data.table(PassengerId = test$PassengerId, Survived = predict.2)
+write.csv(submit.2, file = "./submission2.csv", row.names = F)
+```
+
+**Kaggle Accuracy: 0.77033.**
+
+Wow! Looks like removing variables with little predictive power has increased our accuracy.
+
+## Model 3
+
+Now, in order to increase our model's accuracy, we have to do some feature engineering.
+
+### Feature Engineering
+
+In feature engineering we transform the data available to create additional relevant features from the existing raw features, increasing the predictive power of the learning algorithm.
+
+#### Family Size
+
+We will try to increase the importance of both *SibSp* and *Parch* features by summing them up. This will result in a "family size" feature that might have a stronger predictive power.
+
+```{r}
+fulldt$Family.Size <- as.numeric(fulldt$SibSp) + as.numeric(fulldt$Parch) - 1 # Factor to Numeric convertion adds 1 to the original number
+```
+
+Let's take a better look at our new feature.
+
+```{r, echo = F}
+x <- fulldt[fulldt$PassengerId %in% raw.train$PassengerId, ]
+x$Survived <- raw.train[PassengerId %in% train$PassengerId, "Survived"]
+x$Survived <- factor(x$Survived)
+
+gg.familysize <- ggplot(x) +
+        geom_bar(position = "fill", aes(x = as.factor(Family.Size), fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Family Size Plot",
+             subtitle = "Number of family members on boat and survival. 1 = Single with no family aboard",
+             x = "Number of family Members Aboard",
+             y = "Survival") +
+        theme(legend.position = "bottom") + 
+        geom_hline(yintercept = 0.5, linetype = "dashed", color = "red")
+
+gg.familysize
+```
+
+After analyzing the plot we notice that Single (one person aboard) and Large families (more than 4 people aboard) seem to be more likely to die. But two, three or four people families are just the opposite!
+
+To accentuate this, we will set a new discretized feature based on our analysis of the family member count.
+
+```{r}
+fulldt$Family.Size[fulldt$Family.Size >= 5] <- 'Large Family'
+fulldt$Family.Size[fulldt$Family.Size < 5 & fulldt$Family.Size >= 2] <- 'Small Family'
+fulldt$Family.Size[fulldt$Family.Size == 1] <- 'No Family'
+
+fulldt$Family.Size <- as.factor(fulldt$Family.Size)
+```
+
+```{r, echo = F}
+x <- fulldt[fulldt$PassengerId %in% raw.train$PassengerId, ]
+x$Survived <- raw.train[PassengerId %in% train$PassengerId, "Survived"]
+
+
+gg.familysize <- ggplot(x) +
+        geom_bar(position = "fill", aes(x = Family.Size, fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Family Size Plot",
+             subtitle = "Family Size and survival.",
+             x = "Family Size",
+             y = "Survival") +
+        theme(legend.position = "bottom") + 
+        geom_hline(yintercept = 0.5, linetype = "dashed", color = "red")
+
+gg.familysize
+```
+
+#### Titles
+
+Let's extract the title from the unused *Name* feature, hoping that it might add some value to our predicting model.
+
+```{r}
+fulldt$Title <- gsub('(.*, )|(\\..*)', '', fulldt$Name) # Extract all titles from the Name variable
+table(fulldt$Title)
+```
+
+Better to group the titles with low occurrence into bigger baskets to avoid overfitting.
+
+```{r}
+fulldt$Title[fulldt$Title %in% c("Ms", "Mlle")] <- "Miss"
+
+fulldt$Title[fulldt$Title %in% c("Capt", "Col", "Dona", "Major", "Dr", "Rev", "Lady", "Don", "Sir", "the Countess", "Jonkheer")] <- "Other"
+
+fulldt$Title[fulldt$Title == 'L'] <- 'Mr'
+
+fulldt$Title[fulldt$Title == 'Mme'] <- 'Mrs'
+
+fulldt$Title <- factor(fulldt$Title)
+
+summary(fulldt$Title)
+```
+
+```{r, echo = F}
+x <- fulldt[fulldt$PassengerId %in% raw.train$PassengerId, ]
+x$Survived <- raw.train[PassengerId %in% train$PassengerId, "Survived"]
+
+
+gg.title <- ggplot(x) +
+        geom_bar(position = "fill", aes(x = Title, fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Title Plot",
+             subtitle = "Title and survival.",
+             x = "Title",
+             y = "Survival") +
+        theme(legend.position = "bottom") + 
+        geom_hline(yintercept = 0.5, linetype = "dashed", color = "red")
+
+gg.title
+```
+
+Okay, this feature looks very promising! It creates a big discrepancy because you are very likely to die if you are in the "Mr" and "Other" group, while the rest is just the opposite!
+
+#### Ticket
+
+Although the *Ticket* variable do not present any value by itself, it might be helpful as a group identifier! The new *Family.Size* feature showed that a certain size of family is more likely to live than other. That might also hold true to tickets.  
+
+Assuming that people who share the same tickets stick together as a group (that group might or not be a family), we can find out if people with the same ticket are more likely to live or die.
+
+```{r}
+# Create a table that counts how many times each ticket appears
+ticket.list <- data.table(value = fulldt$Ticket)
+nr.of.appearances <- ticket.list[, list(Ticket.appearances =length(value)), 
+                                by = list(Ticket = value)]
+
+head(nr.of.appearances)
+```
+
+```{r}
+# Join new number of appearances table with our fulldt table
+fulldt <- full_join(x = fulldt, y = nr.of.appearances, by = "Ticket")
+
+fulldt <- as.data.table(fulldt) # Join function turns the table into data.frame. Let's ensure that its a data.table again.
+```
+
+Let's take a look on this new feature.
+
+```{r, echo = F}
+x <- fulldt[fulldt$PassengerId %in% raw.train$PassengerId, ]
+x$Survived <- raw.train[PassengerId %in% raw.train$PassengerId, "Survived"]
+x$Survived <- factor(x$Survived)
+gg.numappearances <- ggplot(x) +
+        geom_bar(position = "fill", aes(x = as.factor(Ticket.appearances), fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Discretized Ticket Plot",
+             subtitle = "Number of passengers with the same ticket",
+             x = "# of passengers",
+             y = "Survival") +
+        theme(legend.position = "bottom") + 
+        geom_hline(yintercept = 0.5, linetype = "dashed", color = "red")
+
+gg.numappearances
+```
+
+It seems to have a big correlation with the family size feature. Maybe we are not bringing anything to the table by adding this new feature. We will check in our final results. 
+
+As the family variable we will create a discretized Ticket feature.
+
+```{r}
+fulldt$Ticket.appearances[fulldt$Ticket.appearances >= 5]   <- 'Big Group'
+fulldt$Ticket.appearances[fulldt$Ticket.appearances < 5 & fulldt$Ticket.appearances>= 2]   <- 'Small Group'
+fulldt$Ticket.appearances[fulldt$Ticket.appearances == 1]   <- 'Single'
+fulldt$Ticket.appearances <- factor(fulldt$Ticket.appearances)
+```
+
+```{r, echo = F}
+x <- fulldt[fulldt$PassengerId %in% raw.train$PassengerId, ]
+x$Survived <- raw.train[PassengerId %in% raw.train$PassengerId, "Survived"]
+x$Survived <- factor(x$Survived)
+gg.numappearances <- ggplot(x) +
+        geom_bar(position = "fill", aes(x = Ticket.appearances, fill = as.factor(Survived)), alpha = 0.4, colour = "black") +
+        labs(title = "Discretized Ticket Plot",
+             subtitle = "Size of the group with the same tickets",
+             x = "Group Size",
+             y = "Survival") +
+        theme(legend.position = "bottom") + 
+        geom_hline(yintercept = 0.5, linetype = "dashed", color = "red")
+
+gg.numappearances
+```
+
+### Modelling
+
+We want to build a model with our new and old features. For this exercise we will keep *Parch* and *SibSp* out because they have been converted into a the new feature *Family.Size*.
+
+```{r}
+# Setting up the train table
+train.3 <- fulldt %>%
+        filter(Origin == "train") %>%
+        select(Title, Sex, Pclass, Fare, Ticket.appearances, Family.Size, Age)
+train.3$Survived <- raw.train$Survived
+
+# Setting up the test table
+test.3 <- fulldt %>%
+        filter(Origin == "test") %>%
+        select(Title, Sex, Pclass, Fare, Ticket.appearances, Family.Size, Age)
+```
+
+```{r}
+set.seed(1234)
+fit.3 <- randomForest(as.factor(Survived) ~ ., data = train.3, ntree = 1000, importance = T) 
+fit.3
+```
+
+We already can see a lower OOB error. What about the importance?
+
+```{r}
+varImpPlot(fit.3)
+```
+
+```{r}
+predict.3 <- predict(fit.3, test.3)
+submit.3 <- data.table(PassengerId = test$PassengerId, Survived = predict.3)
+write.csv(submit.3, file = "./submission3.csv", row.names = F)
+```
+
+**Kaggle Accuracy: 0.78947.**
+
+Looks like some of our new features helped us after all! Title made a significant difference in the predictive power. Unfortunately the same can't be said about the other new features.
+
+# Conclusion
+
+In this ML project we have put to practice a random forest classification model and learned the importance of data exploration and feature engineering. We have achieved a final model with 79% accuracy, which is pretty good!
