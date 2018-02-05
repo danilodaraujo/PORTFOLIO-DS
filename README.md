@@ -28,6 +28,8 @@ In this project we go step by step over data importing and table structuring and
 
 ### Titanic: Machine Learning from Disaster
 
+### [Report](https://rpubs.com/danilodaraujo/titanic)
+
 This is an ideal project to put machine learning to practice. In it we highlight the importance of feature engineering and data exploration to increase the accuracy of our random forest classification model.
 
 # About Me
