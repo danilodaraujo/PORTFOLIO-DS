@@ -32,11 +32,11 @@ In this project we go step by step over data importing and table structuring and
 
 This is an ideal project to put machine learning to practice. In it we highlight the importance of feature engineering and data exploration to increase the accuracy of our random forest classification model.
 
-### Ames, Iowa - House Prices Prediction
+### House Prices Prediction
 
 ### [Report](https://rpubs.com/danilodaraujo/houseprices)
 
-Is this House Price Kaggle challenge I try to focus on feature selection in order to deliver the best accuracy possible. Tools like log transformation and some feature engineering also showed handy the final model.
+In this challenge I focus on feature selection in order to better predict house prices in Ames, Iowa. Tools like logarithmic transformation and feature engineering also showed handy in increasing the model accuracy.
 
 # About Me
 

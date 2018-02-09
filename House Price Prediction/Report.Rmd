@@ -459,4 +459,4 @@ After submitting the exported file we discover that our RSME is 0.15019.
 
 # Conclusion
 
-Is this House Price Kaggle challenge I try to focus on feature selection in order to deliver the best accuracy possible. Tools like log transformation and some feature engineering also showed handy the final model.
+In this challenge I focus on feature selection in order to better predict house prices in Ames, Iowa. Tools like logarithmic transformation and feature engineering also showed handy in increasing the model accuracy.
