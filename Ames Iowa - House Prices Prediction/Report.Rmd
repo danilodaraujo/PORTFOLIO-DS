@@ -1,0 +1,462 @@
+---
+title: "House Prices - Advanced Regression Techniques"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+```{r, warning = F, message = F}
+library(data.table)
+library(ggplot2)
+library(randomForest)
+library(dplyr)
+library(corrplot)
+library(knitr)
+library(kableExtra)
+library(easyGgplot2)
+library(caret)
+```
+
+# About the data
+
+Ask a home buyer to describe their dream house, and they probably won't begin with the height of the basement ceiling or the proximity to an east-west railroad. But this playground competition's dataset proves that much more influences price negotiations than the number of bedrooms or a white-picket fence.
+
+With 79 explanatory variables describing (almost) every aspect of residential homes in Ames, Iowa, this competition challenges you to predict the final price of each home.
+
+The Ames Housing dataset was compiled by Dean De Cock for use in data science education. It's an incredible alternative for data scientists looking for a modernized and expanded version of the often cited Boston Housing dataset. 
+
+Visit [this website](https://www.kaggle.com/c/house-prices-advanced-regression-techniques) if you want to know more about the data.
+
+# Data Import
+
+```{r}
+# File download
+if (!file.exists("./Initial Data/test.csv")) {
+
+        dir.create("./Initial Data")
+        
+        download.file("https://www.kaggle.com/c/house-prices-advanced-regression-techniques/download/test.csv",
+                      "./Initial Data/test.csv") 
+        download.file("https://www.kaggle.com/c/house-prices-advanced-regression-techniques/download/train.csv",
+                      "./Initial Data/train.csv") 
+}
+```
+
+```{r}
+# Data import
+raw.test <- fread(input = "./Initial Data/test.csv", sep = ",", stringsAsFactors = F, data.table = F)
+raw.train <- fread(input = "./Initial Data/train.csv", sep = ",", stringsAsFactors = F, data.table = F)
+
+# Bind and label both train and test sets
+fulldt <- rbind(raw.train[,-81], raw.test)
+fulldt <- cbind(fulldt, Set = c(rep("Train", times = dim(raw.train)[1]),
+                                rep("Test", times = dim(raw.test)[1])))
+```
+
+# Data Cleaning
+
+After some exploratory analysis, we notice some of the variables contain NA values.
+
+```{r}
+# Check for missing values
+x <- colSums(sapply(fulldt, is.na))
+
+# Set table
+x <- data.frame(Variables = names(x), NA.Count = x); rownames(x) <- c()
+
+# Remove variables that don't have missing values
+x <- x %>% filter(NA.Count > 0)
+
+kable(x, "html") %>%
+         kable_styling(full_width = F)
+```
+
+Before going any further, we want to deal with the NA values and clean the data. There is a range of ways of dealing with missing values. Here we will apply simple methods in order to focus on other aspects of the project.
+
+**Method 1 - Replacing missing values by "0"**. 
+These numeric variables use the "NA" to represent the absence of what is being measured. For instance, if a house has a NA in the **BsmtFullBath** variable, it means it doesn't have any full bathroom in the basement. So replacing by "0" seems to be the right approach here.
+
+```{r}
+y <- c("LotFrontage", "MasVnrArea", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF", "BsmtFullBath", "BsmtHalfBath")
+fulldt[,y] <- apply(fulldt[,y], 2, 
+                    function(x) {
+                            replace(x, is.na(x), 0)
+                            }
+                    )
+```
+
+**Method 2 - Replacing missing values by "None"**. 
+Same as before, but with factor variables.
+
+```{r}
+y <- c("Alley", "BsmtQual", "BsmtExposure", "BsmtFinType1", "BsmtFinType2", "FireplaceQu", "PoolQC", "Fence", "MiscFeature", "GarageType", "GarageFinish", "GarageQual", "GarageCond", "BsmtCond")
+fulldt[,y] <- apply(fulldt[,y], 2, 
+                    function(x) {
+                            replace(x, is.na(x), "None")
+                            }
+                    )
+```
+
+**Method 3 - Replacing missing values by the most common value**. 
+As stated before, there might be better approachs to this, but this approach will save us time. 
+As the most recurrent value in the factor variable, there is a higher probability that we are not making a mistake by assigning the most common value as the replacement to NAs.
+
+```{r}
+y <- c("MSZoning", "Utilities", "Exterior1st", "Exterior2nd", "MasVnrType", "Electrical", "KitchenQual", "Functional", "SaleType")
+fulldt[,y] <- apply(fulldt[,y], 2, 
+                    function(x) {
+                            replace(x, is.na(x), names(which.max(table(x))))
+                            }
+                    )
+```
+
+**Method 4 - Replacing missing values by the median**. 
+Same as before, but now with numerical variables.
+
+```{r}
+y <- c("GarageCars", "GarageArea", "BsmtFinSF1")
+fulldt[,y] <- apply(fulldt[,y], 2, 
+                    function(x) {
+                            replace(x, is.na(x), median(x, na.rm = T))
+                            }
+                    )
+```
+
+**Obs: the missing values is GarageYrBlt**. 
+If there is a missing value in the GarageYrBlt variable, we assume that the garage was built the same year as the house.
+
+```{r}
+fulldt$GarageYrBlt[is.na(fulldt$GarageYrBlt)] <- fulldt$YearBuilt[is.na(fulldt$GarageYrBlt)]
+```
+
+Once the missing data was sorted, we want to ensure that each variable is properly classified.
+
+```{r}
+table(sapply(fulldt, class))
+```
+
+It seems most of variables are classified as character rather than factor. Also a closer look shows that the MSSubClass is taken as a numeric variable while it should be a factor.
+
+```{r}
+# Colect name of variables that are character
+class.list <- sapply(fulldt, class)
+class.list.character <- names(class.list[which(class.list=="character")])
+
+# Convert to factor
+fulldt[class.list.character] <- lapply(fulldt[class.list.character], factor)
+
+# Fix MSSubClass class
+fulldt$MSSubClass <- factor(fulldt$MSSubClass)
+```
+
+# Feature Engineering
+
+Now that the data is clean, it's time we try some feature engineering. The idea here is try to create new features that might have a stronger predictive power. We wont remove any of the original variable so they can be compared to the newly created features.
+
+```{r}
+# Create a "total area" feature by adding the basement area and ground living area
+fulldt$TotalArea <- fulldt$GrLivArea + fulldt$TotalBsmtSF
+
+# Create a "total number of baths" feature by adding all bathroom features
+fulldt$TotalBaths <- fulldt$BsmtFullBath + 
+                                fulldt$BsmtHalfBath +
+                                fulldt$FullBath + 
+                                fulldt$HalfBath
+
+# Create a "area aboveground" feature by adding the areas of the first and second floor
+fulldt$AreaAbvground <- fulldt$`1stFlrSF` + fulldt$`2ndFlrSF`
+```
+
+# Feature Selection
+
+It's time to focus on our machine learning algorithm. And the first step might be to pick which variables, of the vast number that we have, we are going to use.
+
+### Numerical Variables
+
+To do this we will take two different approach. The first will focus solely on the numerical variables (the ones that are classified as "integer" and "numerical").
+
+```{r}
+# Subset numerical variables that are from the "train" set
+fulldt.num.train <- fulldt %>% filter(Set == "Train") %>% 
+                                select(which(sapply(.,is.integer)), which(sapply(., is.numeric))) %>%
+                                mutate(SalePrice = raw.train$SalePrice) #Add the "SalePrice" variable
+```
+
+Now we can use this new table to check the correlation among its variables. We want to pick the values that are more strongly correlated to the "SalePrice" variables, because they are the ones who have the strongest predictive power.
+
+```{r}
+correlation <- round(cor(fulldt.num.train),2)
+
+corrplot(correlation, method = "circle")
+```
+
+We can see already that some points are positively correlated (dark blue), while negative correlations might be harder to find. Also, it seems that the newly created features are performing well. But are they performing any better that their originals features? We will have to take a closer look to be sure.
+
+```{r}
+# Set a table with "SalePrice" correlation
+x <- data.frame(Variables = rownames(correlation), 
+                Cor = correlation[, "SalePrice"])
+
+# Order it by correlation
+x <- x[order(x$Cor, decreasing = T),]
+
+# Pick only values that have strong positive and negative correlation
+x <- x[which(x$Cor > 0.5 | x$Cor < -0.5),]
+rownames(x) <- c()
+
+kable(x, "html") %>%
+         kable_styling(full_width = F)
+```
+
+Our new features really outperformed the original ones! We will keep them and discard the originals. We also have to choose between "GarageCars" and "GarageArea" since both represent the same thing. The final feature list should look like this:
+
+```{r}
+kable(x[c(2,3,4,7,10,13),], "html") %>%
+        kable_styling(full_width = F)
+```
+
+### Factor Variables
+
+The second approach to pick features will be done with the factor variables. 
+
+We will use a random forest algorithm to rank each variable by importance. Then we choose the most important features and add to our final algorithm.
+
+```{r}
+# Subset numerical variables that are from the "test" set
+fulldt.fac.train <- fulldt %>% filter(Set == "Train") %>%
+                        select(Id, which(sapply(., is.factor))) %>%
+                        mutate(SalePrice = raw.train$SalePrice) # Add SalePrice variable
+
+fulldt.fac.test <- fulldt %>% filter(Set == "Test") %>%
+                        select(Id, which(sapply(., is.factor)))
+
+# Run RF algorithm will all factor variables
+rf <- randomForest(SalePrice ~ ., data = fulldt.fac.train, importance = T)
+```
+
+```{r}
+# Create Table with importance values
+importance.table <- data.frame(Names = rownames(importance(rf)), '%IncMSE' = importance(rf)[,1])
+
+# Order table
+importance.table <- importance.table[order(importance.table[,2], decreasing = T),]
+rownames(importance.table) <- c()
+
+# Subset first 10 values
+kable(importance.table[1:10,], "html") %>%
+        kable_styling(full_width = F)
+
+```
+
+Interesting. As expected, the neighborhood and quality features show a high predictive power to SalePrice. What might surprise is the "Rating of basement finished area" (BsmtFinType1). 
+
+On other note, As "HouseStyle" and "BldgType" are describing the same thing, we will discard the latter.
+
+# Sale Price Variable
+
+Once the features have been selected,  closer look at the "SalePrice" variable.
+
+```{r, echo = F}
+gg.saleprice <- ggplot(raw.train, aes(SalePrice)) +
+        geom_density(color = "red", fill = "grey")
+
+gg.saleprice
+```
+
+As we can see from the graph, the variable seems to be positively skewed ...
+
+```{r, echo = F}
+qqnorm(raw.train$SalePrice)
+```
+
+and it's not normal. 
+
+It also seem to present some homoscedasticity as it increases:
+
+```{r, echo = F}
+gg.totalarea <- ggplot(fulldt.num.train, aes(TotalArea, SalePrice/10^5)) +
+        geom_point(shape = 1, color = "black", alpha = 0.4) +
+        geom_smooth(method = "lm", color = "firebrick1") +
+        labs(title = "Total Home Area",
+             subtitle = "Correlation = 0.78",
+             x = "Area [ft²]",
+             y = "Sales Price [10^5 USD]") +
+        theme(legend.position = "top")
+
+gg.totalarea
+```
+
+Luckily all this can be resolved by applying a log transformation to the "SalePrice" variable. This is key because normality, homoscedasticity and linearity (which will be checked soon) are critical assumptions that enable the use multivariate techniques.
+
+```{r}
+fulldt.num.train$SalePrice <- log(fulldt.num.train$SalePrice)
+fulldt.fac.train$SalePrice <- log(fulldt.fac.train$SalePrice)
+```
+
+## Exploratory Data Analysis
+
+Let's see how our chosen features relate with our predicted variable "SalePrice". Starting with the numerical ones:
+
+```{r, echo = F}
+theme_set(theme_classic())
+
+gg.overallqual <- ggplot(fulldt.num.train, aes(OverallQual, SalePrice)) +
+        geom_point(shape = 1, color = "black", alpha = 0.3) +
+        geom_smooth(method = "lm", color = "firebrick1") +
+        labs(title = "Overall Quality",
+             subtitle = "Correlation = 0.79",
+             x = "Quality",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top")
+
+gg.totalarea <- ggplot(fulldt.num.train, aes(TotalArea, SalePrice)) +
+        geom_point(shape = 1, color = "black", alpha = 0.4) +
+        geom_smooth(method = "lm", color = "firebrick1") +
+        labs(title = "Total Home Area",
+             subtitle = "Correlation = 0.78",
+             x = "Area [ft²]",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top")
+
+gg.areaabvground <- ggplot(fulldt.num.train, aes(AreaAbvground, SalePrice)) +
+        geom_point(shape = 1, color = "black", alpha = 0.4) +
+        geom_smooth(method = "lm", color = "firebrick1") +
+        labs(title = "Area Above Ground",
+             subtitle = "Correlation = 0.72",
+             x = "Area [ft²]",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top")
+
+gg.garagearea <- ggplot(fulldt.num.train, aes(GarageArea, SalePrice)) +
+        geom_point(shape = 1, color = "black", alpha = 0.4) +
+        geom_smooth(method = "lm", color = "firebrick1") +
+        labs(title = "Garage Area",
+             subtitle = "Correlation = 0.62",
+             x = "Area [ft²]",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top")
+
+gg.totalbaths <- ggplot(fulldt.num.train, aes(TotalBaths, SalePrice)) +
+        geom_point(shape = 1, color = "black", alpha = 0.4) +
+        geom_smooth(method = "lm", color = "firebrick1") +
+        labs(title = "Total Number of Baths",
+             subtitle = "Correlation = 0.61",
+             x = "Number of Baths",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top")
+
+gg.yearbuilt <- ggplot(fulldt.num.train, aes(YearBuilt, SalePrice)) +
+        geom_point(shape = 1, color = "black", alpha = 0.4) +
+        geom_smooth(method = "lm", color = "firebrick1") +
+        labs(title = "Year of Construction",
+             subtitle = "Correlation = 0.61",
+             x = "Yr",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top")
+
+```
+
+```{r, echo = F}
+ggplot2.multiplot(gg.overallqual, gg.totalarea, gg.areaabvground, gg.garagearea, gg.totalbaths, gg.yearbuilt, cols = 3)
+```
+
+Linearity seems to hold true. Also, the homoscedasticity is solved. As expected, all features have a positive correlation with SalePrice. We can also notice some outliers, specially in "Total Home Area" and "Area above ground" graphs, but we wont mind them in this exercise.
+
+Let's take a look at our factor variables:
+
+```{r, echo = F}
+gg.neighborhood <- ggplot(fulldt.fac.train, aes(Neighborhood, SalePrice)) +
+        geom_boxplot() +
+        labs(title = "Overall Quality",
+             x = "Quality",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top") + 
+        theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+gg.mssubclass <- ggplot(fulldt.fac.train, aes(MSSubClass, SalePrice)) +
+        geom_boxplot() +
+        labs(title = "Type of Dwelling",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top") + 
+        theme(axis.title.x=element_blank()) + theme(axis.title.y=element_blank())
+
+gg.fireplacequ <- ggplot(fulldt.fac.train, aes(FireplaceQu, SalePrice)) +
+        geom_boxplot() +
+        labs(title = "Fireplace quality",
+             x = "Quality",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top") +
+        theme(axis.title.x=element_blank()) + theme(axis.title.y=element_blank())
+
+gg.exterqual <- ggplot(fulldt.fac.train, aes(ExterQual, SalePrice)) +
+        geom_boxplot() +
+        labs(title = "External Quality",
+             x = "Quality",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top") +
+        theme(axis.title.x=element_blank()) + theme(axis.title.y=element_blank())
+
+gg.kitchenqual <- ggplot(fulldt.fac.train, aes(KitchenQual, SalePrice)) +
+        geom_boxplot() +
+        labs(title = "Kitchen Quality",
+             x = "Quality",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top") +
+        theme(axis.title.x=element_blank()) + theme(axis.title.y=element_blank())
+
+gg.bsmtqual <- ggplot(fulldt.fac.train, aes(BsmtQual, SalePrice)) +
+        geom_boxplot() +
+        labs(title = "Basement Quality",
+             x = "Quality",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top") +
+        theme(axis.title.x=element_blank()) + theme(axis.title.y=element_blank())
+
+gg.housestyle <- ggplot(fulldt.fac.train, aes(HouseStyle, SalePrice)) +
+        geom_boxplot() +
+        labs(title = "Style of dwelling",
+             x = "Quality",
+             y = "Log(SalePrice)") +
+        theme(legend.position = "top") +
+        theme(axis.title.x=element_blank()) + theme(axis.title.y=element_blank())
+
+```
+
+```{r, echo = F}
+gg.neighborhood
+ggplot2.multiplot(gg.mssubclass, gg.fireplacequ, gg.exterqual, gg.kitchenqual, gg.bsmtqual, gg.housestyle)
+```
+
+Notice that all y-axis correspond to Log(SalePrice) values. We can see already the changes of the log transformation in the graphs. Also important to notice the impact that the neighborhood has on the SalePrice, which is as expected.
+
+# Model
+
+Once all features have been selected, it is time to add them and use a random forest algorithm to best predict the test results.
+
+```{r}
+# Subset the train rows and selected features
+dt.train <- fulldt %>% filter(Set == "Train") %>%
+                        select("Id", "OverallQual", "TotalArea", "AreaAbvground", "GarageArea", "TotalBaths", "YearBuilt", 
+                               "Neighborhood", "MSSubClass", "FireplaceQu", "ExterQual", "KitchenQual", "BsmtQual", "HouseStyle") %>%
+                        mutate(SalePrice = log(raw.train$SalePrice)) # Don't forget to do the log transformation
+
+# Same for the test features
+dt.test <- fulldt %>% filter(Set == "Test") %>%
+                        select("Id", "OverallQual", "TotalArea", "AreaAbvground", "GarageArea", "TotalBaths", "YearBuilt", 
+                               "Neighborhood", "MSSubClass", "FireplaceQu", "ExterQual", "KitchenQual", "BsmtQual", "HouseStyle")
+
+# Random Forest model
+fit <- randomForest(SalePrice ~ ., data = dt.train, importance = T)
+
+# Use new model to predict SalePrice values from the test set
+pred <- exp(predict(fit , newdata = dt.test))
+
+# Export Result
+write.csv(x = data.frame(Id = raw.test$Id, SalePrice = pred), row.names = F, file = "./submission.csv")
+```
+
+After submitting the exported file we discover that our RSME is 0.15019.
+
+# Conclusion
+
+Is this House Price Kaggle challenge I try to focus on feature selection in order to deliver the best accuracy possible. Tools like log transformation and some feature engineering also showed handy the final model.

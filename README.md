@@ -32,6 +32,12 @@ In this project we go step by step over data importing and table structuring and
 
 This is an ideal project to put machine learning to practice. In it we highlight the importance of feature engineering and data exploration to increase the accuracy of our random forest classification model.
 
+### Ames, Iowa - House Prices Prediction
+
+### [Report](https://rpubs.com/danilodaraujo/houseprices)
+
+Is this House Price Kaggle challenge I try to focus on feature selection in order to deliver the best accuracy possible. Tools like log transformation and some feature engineering also showed handy the final model.
+
 # About Me
 
 A result driven data analyst with business acumen. Willing to work with data science in business environments to solve real-life problems. A professional with a business analyst background and a track record of using data to deliver projects to budget within deadlines and effective use of resources.
