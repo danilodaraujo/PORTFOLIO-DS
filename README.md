@@ -7,7 +7,6 @@ If you want more information about me or want to get in touch, feel free to mess
 ## NLP
 
 ### Word Suggestion and Shiny
-![](https://media.giphy.com/media/xUOxfa9p1prUEQUvao/giphy.gif)
 
 ### [Report](http://rpubs.com/danilodaraujo/wordsuggestion) - [Shiny Application](https://danilodaraujo.shinyapps.io/wordsuggestion/)
 
@@ -18,7 +17,6 @@ A shiny application was also developed to ease the interaction with the user. Du
 ## Data Assembling and Cleaning
 
 ### Data assembling and Table structuring of a tidy compreensible dataset
-![](https://media.giphy.com/media/l49JAH7kYcwAeyYw0/giphy.gif)
 
 ### [Report](http://rpubs.com/danilodaraujo/dataassembling)
 
